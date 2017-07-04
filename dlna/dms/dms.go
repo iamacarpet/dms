@@ -146,16 +146,23 @@ func (me *Server) serveHTTP() error {
 const ssdpInterfaceFlags = net.FlagUp | net.FlagMulticast
 
 func (me *Server) doSSDP() {
+	// Set up the listen...
+	so, err := net.ListenPacket("udp4", ssdp.AddrString)
+    if err != nil {
+        panic(err)
+    }
+    defer so.Close()
+
 	active := 0
 	stopped := make(chan struct{})
 	for _, if_ := range me.Interfaces {
 		active++
-		go func(if_ net.Interface) {
+		go func(so *net.UDPConn, if_ net.Interface) {
 			defer func() {
 				stopped <- struct{}{}
 			}()
-			me.ssdpInterface(if_)
-		}(if_)
+			me.ssdpInterface(so, if_)
+		}(so.(*net.UDPConn), if_)
 	}
 	for active > 0 {
 		<-stopped
@@ -164,7 +171,7 @@ func (me *Server) doSSDP() {
 }
 
 // Run SSDP server on an interface.
-func (me *Server) ssdpInterface(if_ net.Interface) {
+func (me *Server) ssdpInterface(so *net.UDPConn, if_ net.Interface) {
 	s := ssdp.Server{
 		Interface: if_,
 		Devices:   devices(),
@@ -176,16 +183,17 @@ func (me *Server) ssdpInterface(if_ net.Interface) {
 		UUID:           me.rootDeviceUUID,
 		NotifyInterval: 5,
 	}
-	if err := s.Init(); err != nil {
+	if err := s.Init(so); err != nil {
 		if if_.Flags&ssdpInterfaceFlags != ssdpInterfaceFlags {
 			// Didn't expect it to work anyway.
+			log.Printf("skipping interface %s for SSDP", if_.Name)
 			return
 		}
 		if strings.Contains(err.Error(), "listen") {
 			// OSX has a lot of dud interfaces. Failure to create a socket on
 			// the interface are what we're expecting if the interface is no
 			// good.
-			return
+	//		return
 		}
 		log.Printf("error creating ssdp server on %s: %s", if_.Name, err)
 		return

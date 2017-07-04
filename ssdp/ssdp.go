@@ -91,12 +91,17 @@ type Server struct {
 	closed         chan struct{}
 }
 
-func makeConn(ifi net.Interface) (ret *net.UDPConn, err error) {
-	ret, err = net.ListenMulticastUDP("udp", &ifi, NetAddr)
-	if err != nil {
-		return
-	}
+func makeConn(so *net.UDPConn, ifi net.Interface) (ret *net.UDPConn, err error) {
+	//ret, err = net.ListenMulticastUDP("udp", &ifi, NetAddr)
+	//if err != nil {
+	//	return
+	//}
+	ret = so
 	p := ipv4.NewPacketConn(ret)
+	group := net.IPv4(239, 255, 255, 250)
+	if err := p.JoinGroup(&ifi, &net.UDPAddr{IP: group}); err != nil {
+        log.Println(err)
+    }
 	if err := p.SetMulticastTTL(2); err != nil {
 		log.Println(err)
 	}
@@ -123,9 +128,9 @@ func (me *Server) serve() {
 	}
 }
 
-func (me *Server) Init() (err error) {
+func (me *Server) Init(so *net.UDPConn) (err error) {
 	me.closed = make(chan struct{})
-	me.conn, err = makeConn(me.Interface)
+	me.conn, err = makeConn(so, me.Interface)
 	return
 }
 
